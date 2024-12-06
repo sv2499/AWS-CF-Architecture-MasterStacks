@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation template for creating qa-environment-ecs-base-resources
+
+Parameters:
+  EnvironmentName:
+    Type: String
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${EnvironmentName}-backend-cluster"
+      ClusterSettings: 
+        - Name: containerInsights
+          Value: enabled
+
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}-repository"
+      RepositoryPolicyText:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowPushPull
+            Effect: Allow
+            Principal:
+              AWS:
+                - "*"
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+
+  ECSTaskExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      RoleName: !Sub "${EnvironmentName}-ecs-task-execution-global-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  ECSTaskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-ecs-task-global-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${EnvironmentName}-ecs-task-global-role-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "tag:GetResources"
+                  - "ec2:DescribeInstances"
+                  - "ec2:DescribeInstanceStatus"
+                  - "ec2:TerminateInstances"
+                  - "ec2:DescribeVolumes"
+                  - "ec2:DescribeTags"
+                  - "cloudwatch:DescribeAlarms"
+                  - "cloudwatch:PutMetricAlarm"
+                  - "cloudwatch:GetMetricStatistics"
+                  - "cloudwatch:PutMetricData"
+                  - "elasticloadbalancing:DescribeLoadBalancerAttributes"
+                  - "elasticloadbalancing:DescribeTargetGroupAttributes"
+                  - "elasticloadbalancing:DescribeLoadBalancers"
+                  - "elasticloadbalancing:DescribeInstanceHealth"
+                  - "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+                  - "elasticloadbalancing:DeregisterInstancesFromLoadBalancer"
+                  - "elasticloadbalancing:DescribeTargetGroups"
+                  - "elasticloadbalancing:DescribeTargetHealth"
+                  - "elasticloadbalancing:RegisterTargets"
+                  - "elasticloadbalancing:DeregisterTargets"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
+                  - "logs:DescribeLogGroups"
+                  - "logs:CreateLogStream"
+                  - "logs:CreateLogGroup"
+                  - "secretsmanager:ListSecrets"
+                  - "secretsmanager:DescribeSecret"
+                  - "secretsmanager:GetResourcePolicy"
+                  - "secretsmanager:ListSecretVersionIds"
+                  - "secretsmanager:GetSecretValue"
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-code-build-global-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "codebuild.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${EnvironmentName}-code-build-global-role-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: 
+                  - "ecr:UploadLayerPart"
+                  - "ecr:CompleteLayerUpload"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:PutImage"
+                  - "ecr:BatchGetImage"
+                  - "ecr:InitiateLayerUpload"
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "secretsmanager:GetSecretValue"
+                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  CodePipelineRole:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      RoleName: !Sub "${EnvironmentName}-code-pipeline-global-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: Allow
+            Principal: 
+              Service: 
+                - codepipeline.amazonaws.com
+            Action: 
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeStarServiceRole
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Policies:
+        - PolicyName: !Sub "${EnvironmentName}-code-pipeline-global-role-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: "Allow"
+                Action: "codestar-connections:UseConnection"
+                Resource: "*"
+
+  ECSGlobalSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${EnvironmentName}-ecs-ms-global-sg"
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      GroupDescription: !Sub "ECS Global SG for ${EnvironmentName}"
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${EnvironmentName}-alb-sg"
+          IpProtocol: tcp
+          FromPort: 1
+          ToPort: 65000
+
+Outputs:
+  ECSCluster:
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${EnvironmentName}-backend-cluster"
+  ECSTaskExecutionRole:
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-ecs-task-execution-global-role"
+  ECSTaskRole:
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-ecs-task-global-role"
+  CodeBuildRole:
+    Value: !GetAtt CodeBuildRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-code-build-global-role"
+  CodePipelineRole:
+    Value: !GetAtt CodePipelineRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-code-pipeline-global-role"
+  ECSGlobalSG:
+    Value: !Ref ECSGlobalSG
+    Export:
+      Name: !Sub "${EnvironmentName}-ecs-ms-global-sg"

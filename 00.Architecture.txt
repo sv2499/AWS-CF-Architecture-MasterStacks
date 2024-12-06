@@ -1,0 +1,8 @@
+Root Stack
+|
+|-- Network-Basic (VPC, Subnets)
+|-- Network-Connectivity (Nat Gateway, Internet Gateway, Route Tables, Routes)
+|-- Network-ALB (Load Balancer, Listener)
+|-- ECS-Common-Resources (ECS Cluster, ECR Repository, ECSTaskExecutionRole, ECSTaskRole, CodeBuildRole)
+|-- Code-Pipeline-Global-Resources (Code build, Code Pipeline)
+`-- ECS-Service-Global-Resources (Target group, Listener, Task Definition, ECS Task)

@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation template for creating ntp resources" 
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: ["dev", "qa", "uat", "staging", "prod"]
+  VpcCidrBlock:
+    Type: String
+  PublicSubnet1CidrBlock:
+    Type: String
+  PublicSubnet2CidrBlock:
+    Type: String
+  PublicSubnet3CidrBlock:
+    Type: String
+  PrivateSubnet1CidrBlock:
+    Type: String
+  PrivateSubnet2CidrBlock:
+    Type: String
+  PrivateSubnet3CidrBlock:
+    Type: String
+  RepoID:
+    Type: String
+  GitBranchName:
+    Type: String
+  GitRepoPathMS:
+    Type: String
+  IncludedFilePathsMS:
+    Type: String
+  TestServiceName:
+    Type: String
+  HealthCheckPath:
+    Type: String
+  TestMSPortMapping: 
+    Type: String
+  TestMSGRPCPortMapping: 
+    Type: String
+  IsGRPCEnabledTestMS: 
+    Type: String
+  TestMSImageTag:
+    Type: String
+
+Resources:
+  NetworkingBasic:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/network-basic.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcCidrBlock: !Ref VpcCidrBlock
+        PublicSubnet1CidrBlock: !Ref PublicSubnet1CidrBlock
+        PublicSubnet2CidrBlock: !Ref PublicSubnet2CidrBlock
+        PublicSubnet3CidrBlock: !Ref PublicSubnet3CidrBlock
+        PrivateSubnet1CidrBlock: !Ref PrivateSubnet1CidrBlock
+        PrivateSubnet2CidrBlock: !Ref PrivateSubnet2CidrBlock
+        PrivateSubnet3CidrBlock: !Ref PrivateSubnet3CidrBlock
+  NetworkConnectivity:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/network-connectivity.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+  NetworkALB:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/network-alb.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+  ECSBaseResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/ecs-common-resources.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+  ECSTestMSPipelineResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/code-pipeline-global-template.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        RepoID: !Ref RepoID
+        GitBranchName: !Ref GitBranchName
+        GitRepoPathMS: !Ref GitRepoPathMS
+        IncludedFilePathsMS: !Ref IncludedFilePathsMS
+        ServiceName: !Ref TestServiceName
+  ECSTestMSALBResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/alb-utility-global-template.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        HealthCheckPath: !Ref HealthCheckPath
+        ServiceName: !Ref TestServiceName
+        PortMapping: !Ref TestMSPortMapping
+        GRPCPortMapping: !Ref TestMSGRPCPortMapping
+        IsGRPCEnabled: !Ref IsGRPCEnabledTestMS
+  ECSTestMSResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://cf-templates.s3.amazonaws.com/ecs-service-global-template.yml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        HealthCheckPath : !Ref HealthCheckPath 
+        ServiceName: !Ref TestServiceName
+        PortMapping : !Ref TestMSPortMapping 
+        GRPCPortMapping : !Ref TestMSGRPCPortMapping 
+        ImageTag : !Ref TestMSImageTag 
+        IsGRPCEnabled : !Ref IsGRPCEnabledTestMS

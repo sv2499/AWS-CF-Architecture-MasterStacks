@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Dynamic CloudFormation Script for ECS Service and Task Definition with Optional gRPC Support"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  RepoID:
+    Type: String
+  GitBranchName:
+    Type: String
+  GitRepoPathMS:
+    Type: String
+  IncludedFilePathsMS:
+    Type: String
+  ServiceName:
+    Type: String
+
+Resources:
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Name: !Join 
+        - '-'
+        - - !Ref ServiceName
+          - 'ms'
+          - !Ref EnvironmentName
+          - 'build'
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - export COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                - export IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${ECS_TASK_CONTAINER_NAME}-${CODEBUILD_BUILD_NUMBER}-${COMMIT_HASH}"
+            build:
+              commands:
+                - cp "${GIT_REPO_PATH}"/Dockerfile .
+                - docker build -t $IMAGE_URI .
+            post_build:
+              commands:
+                - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+                - docker push $IMAGE_URI
+                - echo '[{"name":"'"${ECS_TASK_CONTAINER_NAME}"'","imageUri":"'"$IMAGE_URI"'"}]' > imagedefinitions.json
+          artifacts:
+            files:
+              - imagedefinitions.json
+      Artifacts: 
+        Type: NO_ARTIFACTS
+      Environment: 
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Value: !Sub "${AWS::AccountId}"
+          - Name: AWS_REGION
+            Value: !Sub "${AWS::Region}"
+          - Name: ECR_REPO_NAME
+            Value: !Sub "${EnvironmentName}-repository"
+          - Name: ECS_TASK_CONTAINER_NAME
+            Value: !Ref ServiceName
+          - Name: GIT_REPO_PATH
+            Value: !Ref GitRepoPathMS
+      ServiceRole: !ImportValue
+        Fn::Sub: "${EnvironmentName}-code-build-global-role"
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Sub "${EnvironmentName}-code-build-logs"
+          StreamName: !Sub "${ServiceName}-build-stream"
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Join 
+        - '-'
+        - - !Ref ServiceName
+          - 'ms'
+          - !Ref EnvironmentName
+          - 'pipeline'
+      RoleArn: !ImportValue
+        Fn::Sub: "${EnvironmentName}-code-pipeline-global-role"
+      ArtifactStore:
+        Type: S3
+        Location: "codepipeline-eu-west-1-727379494072"
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              Configuration:
+                BranchName: !Ref GitBranchName
+                ConnectionArn: !Sub "arn:aws:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/connection-id"
+                FullRepositoryId: !Ref RepoID
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub "${ServiceName}-ms-${EnvironmentName}-build"
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: ECS
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              Configuration:
+                ClusterName: !ImportValue
+                  Fn::Sub: "${EnvironmentName}-backend-cluster"
+                ServiceName: !Ref ServiceName
+                FileName: "imagedefinitions.json"
+              InputArtifacts:
+                - Name: BuildArtifact
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration:
+            SourceActionName: Source
+            PullRequest:
+              - Events:
+                  - CLOSED
+                Branches:
+                  Includes:
+                    - !Ref GitBranchName
+                FilePaths: 
+                  Includes: !Split [",", !Ref IncludedFilePathsMS]
+      ExecutionMode: "QUEUED"
+      PipelineType: "V2"

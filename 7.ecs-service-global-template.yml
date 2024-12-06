@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Dynamic CloudFormation Script for ECS Service and Task Definition with Optional gRPC Support"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  HealthCheckPath:
+    Type: String
+  ServiceName: 
+    Type: String
+  PortMapping:
+    Type: Number
+  GRPCPortMapping:
+    Type: Number
+  ImageTag:
+    Type: String
+  IsGRPCEnabled:
+    Type: String
+    AllowedValues: 
+      - "true"
+      - "false"
+
+Conditions:
+  IsGRPCService: !Equals 
+    - !Ref IsGRPCEnabled
+    - "true"
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      Cpu: 512
+      Memory: 1024
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: !ImportValue
+        Fn::Sub: "${EnvironmentName}-ecs-task-global-role"
+      ExecutionRoleArn: !ImportValue
+        Fn::Sub: "${EnvironmentName}-ecs-task-execution-global-role"
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EnvironmentName}-repository:${ImageTag}"
+          PortMappings:
+            - ContainerPort: !Ref PortMapping
+              Protocol: tcp
+            - !If 
+              - IsGRPCService
+              - ContainerPort: !Ref GRPCPortMapping
+                Protocol: tcp
+              - !Ref "AWS::NoValue"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "${EnvironmentName}-ms"
+              awslogs-region: !Sub "${AWS::Region}"
+              awslogs-stream-prefix: !Sub "${ServiceName}-ms-log-stream"
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceName
+      TaskDefinition: !Ref TaskDefinition
+      Cluster: !ImportValue
+        Fn::Sub: "${EnvironmentName}-backend-cluster"
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !ImportValue
+              Fn::Sub: "${EnvironmentName}-private-subnet-1"
+            - !ImportValue
+              Fn::Sub: "${EnvironmentName}-private-subnet-2"
+            - !ImportValue
+              Fn::Sub: "${EnvironmentName}-private-subnet-3"
+          SecurityGroups:
+            - !ImportValue
+              Fn::Sub: "${EnvironmentName}-ecs-ms-global-sg"
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: !Ref PortMapping
+          TargetGroupArn: !ImportValue
+            Fn::Sub: "${ServiceName}-ms-tg"
+        - !If
+          - IsGRPCService
+          - ContainerName: !Ref ServiceName
+            ContainerPort: !Ref GRPCPortMapping
+            TargetGroupArn: !ImportValue
+              Fn::Sub: "${ServiceName}-ms-grpc-tg"
+          - !Ref "AWS::NoValue"

@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Network setup with route tables, NAT gateway, and internet gateway"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+
+Resources:
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${EnvironmentName}-igw"
+
+  IGAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      InternetGatewayId: !Ref "InternetGateway"
+
+  NatGatewayElasticIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt NatGatewayElasticIP1.AllocationId
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-public-subnet-1"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${EnvironmentName}-nat"
+
+  PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  PublicRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: "IGAttachment"
+    Properties:
+      RouteTableId: !Ref "PublicRouteTable"
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref "InternetGateway"
+
+  PublicSubnet1RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-public-subnet-1"
+      RouteTableId: !Ref "PublicRouteTable"
+
+  PublicSubnet2RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-public-subnet-2"
+      RouteTableId: !Ref "PublicRouteTable"
+
+  PublicSubnet3RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-public-subnet-3"
+      RouteTableId: !Ref "PublicRouteTable"
+
+  PrivateRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${EnvironmentName}-private-rt"
+
+  PrivateRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      NatGatewayId: !Ref "NatGateway"
+      RouteTableId: !Ref "PrivateRouteTable"
+      DestinationCidrBlock: "0.0.0.0/0"
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-private-subnet-1"
+      RouteTableId: !Ref "PrivateRouteTable"
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-private-subnet-2"
+      RouteTableId: !Ref "PrivateRouteTable"
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-private-subnet-3"
+      RouteTableId: !Ref "PrivateRouteTable"
+
+Outputs:
+  InternetGatewayId:
+    Value: !Ref "InternetGateway"
+    Export:
+      Name: !Sub "${EnvironmentName}-ig"
+
+  NatGatewayId:
+    Value: !Ref "NatGateway"
+    Export:
+      Name: !Sub "${EnvironmentName}-natgateway"
+
+  PublicRouteTableId:
+    Value: !Ref "PublicRouteTable"
+    Export:
+      Name: !Sub "${EnvironmentName}-public-rt"
+
+  PrivateRouteTableId:
+    Value: !Ref "PrivateRouteTable"
+    Export:
+      Name: !Sub "${EnvironmentName}-private-rt"

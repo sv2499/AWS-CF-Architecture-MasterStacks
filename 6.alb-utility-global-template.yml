@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Dynamic CloudFormation Script for ECS Service and Task Definition with Optional gRPC Support"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  HealthCheckPath:
+    Type: String
+  ServiceName:
+    Type: String
+  PortMapping:
+    Type: Number
+  GRPCPortMapping:
+    Type: Number
+  IsGRPCEnabled:
+    Type: String
+    AllowedValues: 
+      - "true"
+      - "false"
+
+Conditions:
+  IsGRPCService: !Equals 
+    - !Ref IsGRPCEnabled
+    - "true"
+
+Resources:
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ServiceName}-ms-tg"
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      Port: !Ref PortMapping
+      Protocol: HTTP
+      HealthCheckPath: !Ref HealthCheckPath
+      TargetType: ip
+      IpAddressType: ipv4
+      Matcher:
+        HttpCode: 200-299
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 20
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+
+  GRPCTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Condition: IsGRPCService
+    Properties:
+      Name: !Sub "${ServiceName}-ms-grpc-tg"
+      VpcId: !ImportValue
+        Fn::Sub: "${EnvironmentName}-vpc"
+      Port: !Ref GRPCPortMapping
+      Protocol: HTTP
+      ProtocolVersion: HTTP2
+      HealthCheckPath: !Ref HealthCheckPath
+      TargetType: ip
+      IpAddressType: ipv4
+      Matcher:
+        HttpCode: 200-299
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 20
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !ImportValue
+        Fn::Sub: "${EnvironmentName}-alb"
+      Port: !Ref PortMapping
+      Protocol: HTTPS
+      SslPolicy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      Certificates:
+        - CertificateArn: !Sub "arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/certificate-id"
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  GRPCListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: IsGRPCService
+    Properties:
+      LoadBalancerArn: !ImportValue
+        Fn::Sub: "${EnvironmentName}-alb"
+      Port: !Ref GRPCPortMapping
+      Protocol: HTTPS
+      SslPolicy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      Certificates:
+        - CertificateArn: !Sub "arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/certificate-id"
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GRPCTargetGroup
+
+Outputs:
+  TargetGroup:
+    Value: !Ref TargetGroup
+    Export:
+      Name: !Sub "${ServiceName}-ms-tg"
+  GRPCTargetGroup:
+    Condition: IsGRPCService
+    Value: !Ref GRPCTargetGroup
+    Export:
+      Name: !Sub "${ServiceName}-ms-grpc-tg"
